@@ -65,7 +65,8 @@ public class StatsDReporterTest extends TestLogger {
 
 		assertEquals("", reporter.filterCharacters(""));
 		assertEquals("abc", reporter.filterCharacters("abc"));
-		assertEquals("a-b--", reporter.filterCharacters("a:b::"));
+		assertEquals("a_b", reporter.filterCharacters("a:b::"));
+		assertEquals("metric_name", reporter.filterCharacters(" (metric -> name) "));
 	}
 
 	/**

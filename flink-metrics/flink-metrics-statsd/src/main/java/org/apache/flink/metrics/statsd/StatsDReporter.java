@@ -190,27 +190,43 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		}
 	}
 
+	/**
+	* DataDog guidance on statsd names: start with letter, uses ascii alphanumerics and underscore, separated by periods.
+	* Collapse invalid character(s) into an underscore. Skip invalid prefix and suffix.
+	*/
+
+	private Boolean isValidStatsdChar(char c) {
+		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '_');
+	}
+
 	@Override
 	public String filterCharacters(String input) {
 		char[] chars = null;
 		final int strLen = input.length();
 		int pos = 0;
+		Boolean insertFiller = false;
 
 		for (int i = 0; i < strLen; i++) {
 			final char c = input.charAt(i);
-			switch (c) {
-				case ':':
-					if (chars == null) {
-						chars = input.toCharArray();
+			if (isValidStatsdChar(c)) {
+				if (chars != null) {
+					// skip invalid suffix, only fill if followed by valid character
+					if (insertFiller) {
+						chars[pos++] = '_';
+						insertFiller = false;
 					}
-					chars[pos++] = '-';
-					break;
-
-				default:
-					if (chars != null) {
-						chars[pos] = c;
-					}
-					pos++;
+					chars[pos] = c;
+				}
+				pos++;
+			} else {
+				if (chars == null) {
+					chars = input.toCharArray();
+				}
+				// skip invalid prefix, until pos > 0
+				if (pos > 0) {
+					// collapse sequence of invalid char into one filler
+					insertFiller = true;
+				}
 			}
 		}
 
