@@ -133,7 +133,17 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	private void reportGauge(final String name, final Gauge<?> gauge) {
 		Object value = gauge.getValue();
 		if (value != null) {
-			send(name, value.toString());
+			String str = value.toString();
+			Double val;
+			try {
+				val = Double.parseDouble(str);
+			}
+			catch(NumberFormatException e) {
+				val = Double.NaN;
+			}
+			if (val >= 0.0) {
+				send(name, str);
+			}
 		}
 	}
 
@@ -179,14 +189,33 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		}
 	}
 
-	private void send(final String name, final String value) {
+	private String buildStatsdLine(final String name, final String value) {
+		Double number;
 		try {
-			String formatted = String.format("%s:%s|g", name, value);
-			byte[] data = formatted.getBytes(StandardCharsets.UTF_8);
-			socket.send(new DatagramPacket(data, data.length, this.address));
+			number = Double.parseDouble(value);
 		}
-		catch (IOException e) {
-			LOG.error("unable to send packet to statsd at '{}:{}'", address.getHostName(), address.getPort());
+		catch(NumberFormatException e) {
+			// quietly skip values like "n/a"
+			return "";
+		}
+		if (number < 0.0) {
+			// quietly skip "unknowns" like lowWaterMark:-9223372036854775808, or JVM.Memory.NonHeap.Max:-1
+			return "";
+		}
+
+		return String.format("%s:%s|g", name, value);
+	}
+
+	private void send(final String name, final String value) {
+		String formatted = buildStatsdLine(name, value);
+		if (formatted.length() > 0) {
+			try {
+				byte[] data = formatted.getBytes(StandardCharsets.UTF_8);
+				socket.send(new DatagramPacket(data, data.length, this.address));
+			}
+			catch (IOException e) {
+				LOG.error("unable to send packet to statsd at '{}:{}'", address.getHostName(), address.getPort());
+			}
 		}
 	}
 

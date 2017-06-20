@@ -22,13 +22,9 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.MetricOptions;
-import org.apache.flink.metrics.Counter;
-import org.apache.flink.metrics.Histogram;
-import org.apache.flink.metrics.HistogramStatistics;
-import org.apache.flink.metrics.MetricConfig;
-import org.apache.flink.metrics.SimpleCounter;
-import org.apache.flink.metrics.reporter.MetricReporter;
+import org.apache.flink.metrics.*;
 import org.apache.flink.metrics.util.TestMeter;
+import org.apache.flink.metrics.reporter.MetricReporter;
 import org.apache.flink.runtime.metrics.MetricRegistry;
 import org.apache.flink.runtime.metrics.MetricRegistryConfiguration;
 import org.apache.flink.runtime.metrics.groups.TaskManagerJobMetricGroup;
@@ -129,7 +125,102 @@ public class StatsDReporterTest extends TestLogger {
 	}
 
 	/**
-	 * Tests that histograms are properly reported via the StatsD reporter.
+	 * Tests that statsd lines are valid
+	 */
+	@Test
+	public void testBuildStatsdLine() throws Exception {
+		MetricRegistry registry = null;
+		DatagramSocketReceiver receiver = null;
+		Thread receiverThread = null;
+		long timeout = 5000;
+		long joinTimeout = 30000;
+
+
+		try {
+			receiver = new DatagramSocketReceiver();
+
+			receiverThread = new Thread(receiver);
+
+			receiverThread.start();
+
+			int port = receiver.getPort();
+
+			Configuration config = new Configuration();
+			config.setString(MetricOptions.REPORTERS_LIST, "test");
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test." + ConfigConstants.METRICS_REPORTER_CLASS_SUFFIX, StatsDReporter.class.getName());
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test." + ConfigConstants.METRICS_REPORTER_INTERVAL_SUFFIX, "1 SECONDS");
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test.host", "localhost");
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test.port", "" + port);
+
+			registry = new MetricRegistry(MetricRegistryConfiguration.fromConfiguration(config));
+
+			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, "localhost", "tmId");
+
+			Gauge<Integer> negOne = new Gauge<Integer>() {
+				@Override
+				public Integer getValue() {
+					return -1;
+				}
+			};
+			Gauge <Long> negMin = new Gauge<Long>() {
+				@Override
+				public Long getValue() {
+					return Long.MIN_VALUE;
+				}
+			};
+			Gauge <String> na = new Gauge<String>() {
+				@Override
+				public String getValue() {
+					return "n/a";
+				}
+			};
+			Gauge <Double> nan = new Gauge<Double>() {
+				@Override
+				public Double getValue() {
+					return Double.NaN;
+				}
+			};
+			Gauge <Double> valid = new Gauge<Double>() {
+				@Override
+				public Double getValue() {
+					return 1.23;
+				}
+			};
+
+			// these should be ignored
+			metricGroup.gauge("negOne", negOne);
+			metricGroup.gauge("negMin", negMin);
+			metricGroup.gauge("na", na);
+			metricGroup.gauge("nan", nan);
+
+			// this should be the only received metric
+			metricGroup.gauge("valid", valid);
+
+			receiver.waitUntilNumLines(1, timeout);
+			Set<String> lines = receiver.getLines();
+
+			Set<String> expectedLines = new HashSet<>();
+			expectedLines.add(metricGroup.getMetricIdentifier("valid") + ":1.23|g");
+
+			assertEquals(expectedLines, lines);
+
+		} finally {
+			if (registry != null) {
+				registry.shutdown();
+			}
+
+			if (receiver != null) {
+				receiver.stop();
+			}
+
+			if (receiverThread != null) {
+				receiverThread.join(joinTimeout);
+			}
+		}
+	}
+
+	/**
+	 * Tests that histograms are properly reported via the StatsD reporter
 	 */
 	@Test
 	public void testStatsDHistogramReporting() throws Exception {
