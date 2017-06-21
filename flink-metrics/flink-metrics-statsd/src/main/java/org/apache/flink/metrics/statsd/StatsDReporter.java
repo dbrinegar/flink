@@ -228,14 +228,13 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '_');
 	}
 
-	@Override
-	public String filterCharacters(String input) {
+	private String filterNCharacters(String input, Integer limit) {
 		char[] chars = null;
 		final int strLen = input.length();
 		int pos = 0;
 		Boolean insertFiller = false;
 
-		for (int i = 0; i < strLen; i++) {
+		for (int i = 0; i < strLen && pos < limit; i++) {
 			final char c = input.charAt(i);
 			if (isValidStatsdChar(c)) {
 				if (chars != null) {
@@ -259,6 +258,24 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 			}
 		}
 
-		return chars == null ? input : new String(chars, 0, pos);
+		if (chars == null) {
+			if (strLen > limit) {
+				return input.substring(0, limit);
+			} else {
+				return input; // happy path, input is entirely valid and under the limit
+			}
+		} else {
+			return new String(chars, 0, pos);
+		}
+	}
+
+	@Override
+	public String filterCharacters(String input) {
+		if (input.length() < 50) {
+			return filterNCharacters(input, Integer.MAX_VALUE);
+		}
+		// remove hash() references to stabilize the identifier
+		String stableName = input.replaceAll("@[0-9a-f]+", "");
+		return filterNCharacters(stableName, 10) + "_" + Integer.toHexString(stableName.hashCode());
 	}
 }

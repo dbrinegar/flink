@@ -58,11 +58,15 @@ public class StatsDReporterTest extends TestLogger {
 	@Test
 	public void testReplaceInvalidChars() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
 		StatsDReporter reporter = new StatsDReporter();
+		String triggerWindowName = "TriggerWindow(TumblingProcessingTimeWindows(5000), ReducingStateDescriptor{serializer=org.apache.flink.api.java.typeutils.runtime.PojoSerializer@f3395ffa, reduceFunction=org.apache.flink.streaming.examples.socket.SocketWindowWordCount$1@4201c465}, ProcessingTimeTrigger(), WindowedStream.reduce(WindowedStream.java-301))";
+		String triggerWindowAltInstance = triggerWindowName.replace("@f3395ffa", "@f3395ffb").replace("@4201c465", "@564c1024");
 
 		assertEquals("", reporter.filterCharacters(""));
 		assertEquals("abc", reporter.filterCharacters("abc"));
 		assertEquals("a_b", reporter.filterCharacters("a:b::"));
 		assertEquals("metric_name", reporter.filterCharacters(" (metric -> name) "));
+		assertEquals("TriggerWin_c2910b88", reporter.filterCharacters(triggerWindowName));
+		assertEquals("TriggerWin_c2910b88", reporter.filterCharacters(triggerWindowAltInstance));
 	}
 
 	/**
