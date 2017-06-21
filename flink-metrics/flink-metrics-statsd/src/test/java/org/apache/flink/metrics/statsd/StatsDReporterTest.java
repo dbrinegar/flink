@@ -40,10 +40,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.SocketException;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 
@@ -224,6 +221,76 @@ public class StatsDReporterTest extends TestLogger {
 	}
 
 	/**
+	 * Tests that latency is properly reported via the StatsD reporter
+	 */
+	@Test
+	public void testStatsDLatencyReporting() throws Exception {
+		MetricRegistry registry = null;
+		DatagramSocketReceiver receiver = null;
+		Thread receiverThread = null;
+		long timeout = 5000;
+		long joinTimeout = 30000;
+
+		String latencyName = "latency";
+
+		try {
+			receiver = new DatagramSocketReceiver();
+
+			receiverThread = new Thread(receiver);
+
+			receiverThread.start();
+
+			int port = receiver.getPort();
+
+			Configuration config = new Configuration();
+			config.setString(MetricOptions.REPORTERS_LIST, "test");
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test." + ConfigConstants.METRICS_REPORTER_CLASS_SUFFIX, StatsDReporter.class.getName());
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test." + ConfigConstants.METRICS_REPORTER_INTERVAL_SUFFIX, "1 SECONDS");
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test.host", "localhost");
+			config.setString(ConfigConstants.METRICS_REPORTER_PREFIX + "test.port", "" + port);
+
+			registry = new MetricRegistry(MetricRegistryConfiguration.fromConfiguration(config));
+
+			TaskManagerMetricGroup metricGroup = new TaskManagerMetricGroup(registry, "localhost", "tmId");
+
+			TestingLatencyGauge latency = new TestingLatencyGauge();
+
+			metricGroup.gauge(latencyName, latency);
+
+			receiver.waitUntilNumLines(6, timeout);
+
+			Set<String> lines = receiver.getLines();
+
+			String prefix = metricGroup.getMetricIdentifier(latencyName);
+
+			Set<String> expectedLines = new HashSet<>();
+
+			expectedLines.add(prefix + ".min:1.0|g");
+			expectedLines.add(prefix + ".mean:51.0|g");
+			expectedLines.add(prefix + ".p50:50.0|g");
+			expectedLines.add(prefix + ".p95:95.0|g");
+			expectedLines.add(prefix + ".p99:99.0|g");
+			expectedLines.add(prefix + ".max:999.0|g");
+
+			assertEquals(expectedLines, lines);
+
+		} finally {
+			if (registry != null) {
+				registry.shutdown();
+			}
+
+			if (receiver != null) {
+				receiver.stop();
+			}
+
+			if (receiverThread != null) {
+				receiverThread.join(joinTimeout);
+			}
+		}
+	}
+
+
+	/**
 	 * Tests that histograms are properly reported via the StatsD reporter
 	 */
 	@Test
@@ -372,7 +439,24 @@ public class StatsDReporterTest extends TestLogger {
 		}
 	}
 
-	private static class TestingHistogram implements Histogram {
+	//{LatencySourceDescriptor{vertexID=1, subtaskIndex=-1}={p99=79.0, p50=79.0, min=79.0, max=79.0, p95=79.0, mean=79.0}}
+	public static class TestingLatencyGauge implements Gauge<Map<String, HashMap<String, Double>>> {
+		@Override
+		public Map<String, HashMap<String, Double>> getValue() {
+			Map<String, HashMap<String, Double>> ret = new HashMap<>();
+			HashMap<String, Double> v = new HashMap<>();
+			v.put("max", 999.);
+			v.put("mean", 51.);
+			v.put("min", 1.);
+			v.put("p50", 50.);
+			v.put("p95", 95.);
+			v.put("p99", 99.);
+			ret.put("{LatencySourceDescriptor{vertexID=1, subtaskIndex=-1}", v);
+			return ret;
+		}
+	}
+
+	public static class TestingHistogram implements Histogram {
 
 		@Override
 		public void update(long value) {

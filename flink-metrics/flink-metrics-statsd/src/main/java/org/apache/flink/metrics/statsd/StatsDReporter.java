@@ -132,18 +132,22 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 
 	private void reportGauge(final String name, final Gauge<?> gauge) {
 		Object value = gauge.getValue();
-		if (value != null) {
-			String str = value.toString();
-			Double val;
-			try {
-				val = Double.parseDouble(str);
+		if (value == null) {
+			return;
+		}
+		if (value instanceof Map) {
+			// LatencyGauge is a Map<String, HashMap<String,Double>>
+			for (Object m: ((Map<?,?>)value).values()) {
+				if (m instanceof Map) {
+					for (Map.Entry<?,?> entry: ((Map<?,?>)m).entrySet()) {
+						String k = String.valueOf(entry.getKey());
+						String v = String.valueOf(entry.getValue());
+						send(prefix(name, k), v);
+					}
+				}
 			}
-			catch(NumberFormatException e) {
-				val = Double.NaN;
-			}
-			if (val >= 0.0) {
-				send(name, str);
-			}
+		} else {
+			send(name, value.toString());
 		}
 	}
 
@@ -198,12 +202,12 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 			// quietly skip values like "n/a"
 			return "";
 		}
-		if (number < 0.0) {
-			// quietly skip "unknowns" like lowWaterMark:-9223372036854775808, or JVM.Memory.NonHeap.Max:-1
+		if (number >= 0.) {
+			return String.format("%s:%s|g", name, value);
+		} else {
+			// quietly skip "unknowns" like lowWaterMark:-9223372036854775808, or JVM.Memory.NonHeap.Max:-1, or NaN
 			return "";
 		}
-
-		return String.format("%s:%s|g", name, value);
 	}
 
 	private void send(final String name, final String value) {
