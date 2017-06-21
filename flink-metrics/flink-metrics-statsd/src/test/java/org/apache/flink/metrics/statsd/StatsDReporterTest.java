@@ -128,7 +128,7 @@ public class StatsDReporterTest extends TestLogger {
 	 * Tests that statsd lines are valid
 	 */
 	@Test
-	public void testBuildStatsdLine() throws Exception {
+	public void testIgnoreInvalidValues() throws Exception {
 		MetricRegistry registry = null;
 		DatagramSocketReceiver receiver = null;
 		Thread receiverThread = null;
