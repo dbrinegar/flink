@@ -448,7 +448,7 @@ public class StatsDReporterTest extends TestLogger {
 	}
 
 	/**
-	 * Immitate a LatencyGauge.
+	 * Imitate a LatencyGauge.
 	 * eg: {LatencySourceDescriptor{vertexID=1, subtaskIndex=-1}={p99=79.0, p50=79.0, min=79.0, max=79.0, p95=79.0, mean=79.0}}
 	 */
 	public static class TestingLatencyGauge implements Gauge<Map<String, HashMap<String, Double>>> {
