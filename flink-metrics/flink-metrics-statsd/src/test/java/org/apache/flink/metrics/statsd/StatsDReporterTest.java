@@ -22,9 +22,14 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.MetricOptions;
-import org.apache.flink.metrics.*;
-import org.apache.flink.metrics.util.TestMeter;
+import org.apache.flink.metrics.Counter;
+import org.apache.flink.metrics.Gauge;
+import org.apache.flink.metrics.Histogram;
+import org.apache.flink.metrics.HistogramStatistics;
+import org.apache.flink.metrics.MetricConfig;
+import org.apache.flink.metrics.SimpleCounter;
 import org.apache.flink.metrics.reporter.MetricReporter;
+import org.apache.flink.metrics.util.TestMeter;
 import org.apache.flink.runtime.metrics.MetricRegistry;
 import org.apache.flink.runtime.metrics.MetricRegistryConfiguration;
 import org.apache.flink.runtime.metrics.groups.TaskManagerJobMetricGroup;
@@ -40,7 +45,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.SocketException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 
@@ -126,7 +135,7 @@ public class StatsDReporterTest extends TestLogger {
 	}
 
 	/**
-	 * Tests that statsd lines are valid
+	 * Tests that statsd lines are valid.
 	 */
 	@Test
 	public void testIgnoreInvalidValues() throws Exception {
@@ -135,7 +144,6 @@ public class StatsDReporterTest extends TestLogger {
 		Thread receiverThread = null;
 		long timeout = 5000;
 		long joinTimeout = 30000;
-
 
 		try {
 			receiver = new DatagramSocketReceiver();
@@ -221,7 +229,7 @@ public class StatsDReporterTest extends TestLogger {
 	}
 
 	/**
-	 * Tests that latency is properly reported via the StatsD reporter
+	 * Tests that latency is properly reported via the StatsD reporter.
 	 */
 	@Test
 	public void testStatsDLatencyReporting() throws Exception {
@@ -291,7 +299,7 @@ public class StatsDReporterTest extends TestLogger {
 
 
 	/**
-	 * Tests that histograms are properly reported via the StatsD reporter
+	 * Tests that histograms are properly reported via the StatsD reporter.
 	 */
 	@Test
 	public void testStatsDHistogramReporting() throws Exception {
@@ -439,7 +447,10 @@ public class StatsDReporterTest extends TestLogger {
 		}
 	}
 
-	//{LatencySourceDescriptor{vertexID=1, subtaskIndex=-1}={p99=79.0, p50=79.0, min=79.0, max=79.0, p95=79.0, mean=79.0}}
+	/**
+	 * Immitate a LatencyGauge.
+	 * eg: {LatencySourceDescriptor{vertexID=1, subtaskIndex=-1}={p99=79.0, p50=79.0, min=79.0, max=79.0, p95=79.0, mean=79.0}}
+	 */
 	public static class TestingLatencyGauge implements Gauge<Map<String, HashMap<String, Double>>> {
 		@Override
 		public Map<String, HashMap<String, Double>> getValue() {
@@ -456,6 +467,9 @@ public class StatsDReporterTest extends TestLogger {
 		}
 	}
 
+	/**
+	 * TestingHistogram.
+	 */
 	public static class TestingHistogram implements Histogram {
 
 		@Override

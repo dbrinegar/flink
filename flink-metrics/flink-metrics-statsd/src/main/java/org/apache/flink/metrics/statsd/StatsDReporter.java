@@ -137,9 +137,9 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		}
 		if (value instanceof Map) {
 			// LatencyGauge is a Map<String, HashMap<String,Double>>
-			for (Object m: ((Map<?,?>)value).values()) {
+			for (Object m: ((Map<?, ?>) value).values()) {
 				if (m instanceof Map) {
-					for (Map.Entry<?,?> entry: ((Map<?,?>)m).entrySet()) {
+					for (Map.Entry<?, ?> entry: ((Map<?, ?>) m).entrySet()) {
 						String k = String.valueOf(entry.getKey());
 						String v = String.valueOf(entry.getValue());
 						send(prefix(name, k), v);
@@ -198,7 +198,7 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		try {
 			number = Double.parseDouble(value);
 		}
-		catch(NumberFormatException e) {
+		catch (NumberFormatException e) {
 			// quietly skip values like "n/a"
 			return "";
 		}
