@@ -24,7 +24,9 @@ import org.apache.flink.metrics.Gauge;
 import org.apache.flink.metrics.Histogram;
 import org.apache.flink.metrics.HistogramStatistics;
 import org.apache.flink.metrics.Meter;
+import org.apache.flink.metrics.Metric;
 import org.apache.flink.metrics.MetricConfig;
+import org.apache.flink.metrics.MetricGroup;
 import org.apache.flink.metrics.reporter.AbstractReporter;
 import org.apache.flink.metrics.reporter.Scheduled;
 
@@ -40,6 +42,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ConcurrentModificationException;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Largely based on the StatsDReporter class by ReadyTalk.
@@ -53,18 +57,29 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 
 	private static final Logger LOG = LoggerFactory.getLogger(StatsDReporter.class);
 
-	public static final String ARG_HOST = "host";
-	public static final String ARG_PORT = "port";
+	private static final String ARG_HOST = "host";
+	private static final String ARG_PORT = "port";
+	private static final String ARG_DOGSTATSD = "dogstatsd";
+	private static final String ARG_SHORTIDS = "shortids";
+	//private static final String HOST_TAG = "<host>";
 
 	private boolean closed = false;
 
 	private DatagramSocket socket;
 	private InetSocketAddress address;
 
+	private boolean dogstatsdMode;
+	private boolean shortIds;
+
+	private final Map<Metric, String> tagTable = new ConcurrentHashMap<>();
+
 	@Override
 	public void open(MetricConfig config) {
 		String host = config.getString(ARG_HOST, null);
 		int port = config.getInteger(ARG_PORT, -1);
+
+		dogstatsdMode = config.getBoolean(ARG_DOGSTATSD, false);
+		shortIds = config.getBoolean(ARG_SHORTIDS, false);
 
 		if (host == null || host.length() == 0 || port < 1) {
 			throw new IllegalArgumentException("Invalid host/port configuration. Host: " + host + " Port: " + port);
@@ -77,7 +92,7 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		} catch (SocketException e) {
 			throw new RuntimeException("Could not create datagram socket. ", e);
 		}
-		log.info("Configured StatsDReporter with {host:{}, port:{}}", host, port);
+		log.info("Configured StatsDReporter with config: {}", config);
 	}
 
 	@Override
@@ -89,6 +104,44 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	}
 
 	// ------------------------------------------------------------------------
+	/**
+	 * Removes leading and trailing angle brackets.
+	 */
+	private String stripBrackets(String str) {
+		return str.substring(1, str.length() - 1);
+	}
+
+	@Override
+	public void notifyOfAddedMetric(Metric metric, String metricName, MetricGroup group) {
+		if (dogstatsdMode) {
+			// memoize dogstatsd tag section: "|#tag:val,tag:val,tag:val"
+			StringBuilder statsdTagLine = new StringBuilder();
+			Map<String, String> orderedTags = new TreeMap<>(group.getAllVariables());
+			for (Map.Entry<String, String> entry: orderedTags.entrySet()) {
+				String k = stripBrackets(entry.getKey());
+				String v = filterCharacters(entry.getValue());
+				statsdTagLine.append(",").append(k).append(":").append(v);
+			}
+			if (statsdTagLine.length() > 0) {
+				// remove first comma, prefix with "|#"
+				tagTable.put(metric, "|#" + statsdTagLine.substring(1));
+
+				String name = metric.getClass().getSimpleName();
+				if (name.length() == 0) {
+					name = metric.toString();
+				}
+			}
+		}
+		super.notifyOfAddedMetric(metric, metricName, group);
+	}
+
+	@Override
+	public void notifyOfRemovedMetric(Metric metric, String metricName, MetricGroup group) {
+		if (dogstatsdMode) {
+			tagTable.remove(metric);
+		}
+		super.notifyOfRemovedMetric(metric, metricName, group);
+	}
 
 	@Override
 	public void report() {
@@ -127,7 +180,7 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	// ------------------------------------------------------------------------
 
 	private void reportCounter(final String name, final Counter counter) {
-		send(name, String.valueOf(counter.getCount()));
+		send(name, String.valueOf(counter.getCount()), tagTable.get(counter));
 	}
 
 	private void reportGauge(final String name, final Gauge<?> gauge) {
@@ -135,6 +188,7 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		if (value == null) {
 			return;
 		}
+		String tags = tagTable.get(gauge);
 		if (value instanceof Map) {
 			// LatencyGauge is a Map<String, HashMap<String,Double>>
 			for (Object m: ((Map<?, ?>) value).values()) {
@@ -142,12 +196,12 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 					for (Map.Entry<?, ?> entry: ((Map<?, ?>) m).entrySet()) {
 						String k = String.valueOf(entry.getKey());
 						String v = String.valueOf(entry.getValue());
-						send(prefix(name, k), v);
+						send(prefix(name, k), v, tags);
 					}
 				}
 			}
 		} else {
-			send(name, value.toString());
+			send(name, value.toString(), tags);
 		}
 	}
 
@@ -155,27 +209,29 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		if (histogram != null) {
 
 			HistogramStatistics statistics = histogram.getStatistics();
+			String tags = tagTable.get(histogram);
 
 			if (statistics != null) {
-				send(prefix(name, "count"), String.valueOf(histogram.getCount()));
-				send(prefix(name, "max"), String.valueOf(statistics.getMax()));
-				send(prefix(name, "min"), String.valueOf(statistics.getMin()));
-				send(prefix(name, "mean"), String.valueOf(statistics.getMean()));
-				send(prefix(name, "stddev"), String.valueOf(statistics.getStdDev()));
-				send(prefix(name, "p50"), String.valueOf(statistics.getQuantile(0.5)));
-				send(prefix(name, "p75"), String.valueOf(statistics.getQuantile(0.75)));
-				send(prefix(name, "p95"), String.valueOf(statistics.getQuantile(0.95)));
-				send(prefix(name, "p98"), String.valueOf(statistics.getQuantile(0.98)));
-				send(prefix(name, "p99"), String.valueOf(statistics.getQuantile(0.99)));
-				send(prefix(name, "p999"), String.valueOf(statistics.getQuantile(0.999)));
+				send(prefix(name, "count"), String.valueOf(histogram.getCount()), tags);
+				send(prefix(name, "max"), String.valueOf(statistics.getMax()), tags);
+				send(prefix(name, "min"), String.valueOf(statistics.getMin()), tags);
+				send(prefix(name, "mean"), String.valueOf(statistics.getMean()), tags);
+				send(prefix(name, "stddev"), String.valueOf(statistics.getStdDev()), tags);
+				send(prefix(name, "p50"), String.valueOf(statistics.getQuantile(0.5)), tags);
+				send(prefix(name, "p75"), String.valueOf(statistics.getQuantile(0.75)), tags);
+				send(prefix(name, "p95"), String.valueOf(statistics.getQuantile(0.95)), tags);
+				send(prefix(name, "p98"), String.valueOf(statistics.getQuantile(0.98)), tags);
+				send(prefix(name, "p99"), String.valueOf(statistics.getQuantile(0.99)), tags);
+				send(prefix(name, "p999"), String.valueOf(statistics.getQuantile(0.999)), tags);
 			}
 		}
 	}
 
 	private void reportMeter(final String name, final Meter meter) {
 		if (meter != null) {
-			send(prefix(name, "rate"), String.valueOf(meter.getRate()));
-			send(prefix(name, "count"), String.valueOf(meter.getCount()));
+			String tags = tagTable.get(meter);
+			send(prefix(name, "rate"), String.valueOf(meter.getRate()), tags);
+			send(prefix(name, "count"), String.valueOf(meter.getCount()), tags);
 		}
 	}
 
@@ -193,7 +249,7 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		}
 	}
 
-	private String buildStatsdLine(final String name, final String value) {
+	private String buildStatsdLine(final String name, final String value, final String tags) {
 		Double number;
 		try {
 			number = Double.parseDouble(value);
@@ -203,15 +259,15 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 			return "";
 		}
 		if (number >= 0.) {
-			return String.format("%s:%s|g", name, value);
+			return String.format("%s:%s|g%s", name, value, tags != null ? tags : "");
 		} else {
 			// quietly skip "unknowns" like lowWaterMark:-9223372036854775808, or JVM.Memory.NonHeap.Max:-1, or NaN
 			return "";
 		}
 	}
 
-	private void send(final String name, final String value) {
-		String formatted = buildStatsdLine(name, value);
+	private void send(final String name, final String value, final String tags) {
+		String formatted = buildStatsdLine(name, value, tags);
 		if (formatted.length() > 0) {
 			try {
 				byte[] data = formatted.getBytes(StandardCharsets.UTF_8);
@@ -276,7 +332,11 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	@Override
 	public String filterCharacters(String input) {
 		if (input.length() < 50) {
-			return filterNCharacters(input, Integer.MAX_VALUE);
+			Integer limit = Integer.MAX_VALUE;
+			if (shortIds && input.length() == 32 && !input.contains("_")) {
+				limit = 8;
+			}
+			return filterNCharacters(input, limit);
 		}
 		// remove hash() references to stabilize the identifier
 		String stableName = input.replaceAll("@[0-9a-f]+", "");
