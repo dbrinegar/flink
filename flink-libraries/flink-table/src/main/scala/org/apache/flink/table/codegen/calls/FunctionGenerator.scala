@@ -375,6 +375,26 @@ object FunctionGenerator {
     Seq(),
     new ConstantCallGen(DOUBLE_TYPE_INFO, Math.PI.toString))
 
+  addSqlFunction(
+    RAND,
+    Seq(),
+    new RandCallGen(isRandInteger = false, hasSeed = false))
+
+  addSqlFunction(
+    RAND,
+    Seq(INT_TYPE_INFO),
+    new RandCallGen(isRandInteger = false, hasSeed = true))
+
+  addSqlFunction(
+    RAND_INTEGER,
+    Seq(INT_TYPE_INFO),
+    new RandCallGen(isRandInteger = true, hasSeed = false))
+
+  addSqlFunction(
+    RAND_INTEGER,
+    Seq(INT_TYPE_INFO, INT_TYPE_INFO),
+    new RandCallGen(isRandInteger = true, hasSeed = true))
+
   // ----------------------------------------------------------------------------------------------
   // Temporal functions
   // ----------------------------------------------------------------------------------------------
