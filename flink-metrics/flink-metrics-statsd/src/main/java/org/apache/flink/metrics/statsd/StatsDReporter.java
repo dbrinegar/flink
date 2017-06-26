@@ -75,7 +75,7 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	private final Map<Metric, String> tagTable = new ConcurrentHashMap<>();
 
 	private final Pattern instanceRef = Pattern.compile("@[a-f0-9]+");
-	private final Pattern flinkId = Pattern.compile("[a-f0-9]");
+	private final Pattern flinkId = Pattern.compile("[a-f0-9]{32}");
 
 	@Override
 	public void open(MetricConfig config) {
