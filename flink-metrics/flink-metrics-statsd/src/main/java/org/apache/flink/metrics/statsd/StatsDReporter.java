@@ -108,6 +108,7 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	}
 
 	// ------------------------------------------------------------------------
+
 	/**
 	 * Removes leading and trailing angle brackets.
 	 */
@@ -338,21 +339,21 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	 * filterCharacters() is called on each delimited segment of the metric.
 	 *
 	 * We might get a string that has coded structures, references to instances of serializers and reducers, and even if
-	 * we normalize all the odd characters could be overly long for a metric name, likely to be truncated down stream.
+	 * we normalize all the odd characters could be overly long for a metric name, likely to be truncated downstream.
 	 * Our choices here appear to be either to discard invalid metrics, or to pragmatically handle each of the various
 	 * issues and produce something that might be useful in aggregate even though the named parts are hard to read.
 	 *
 	 * This function will find and remove all object references like @abcd0123, so that task and operator names are stable.
-	 * The name of an operator should be the same every time it is run, so we should ignore those object assignments.
+	 * The name of an operator should be the same every time it is run, so we should ignore object hash ids like these.
 	 *
 	 * If the segment is a tm_id, task_id, job_id, task_attempt_id, we can optionally trim those to the first 8 chars.
 	 * This can reduce overall length substantially while still preserving enough to distinguish metrics from each other.
 	 *
-	 * If the segment is 50 chars or longer, we will compress the original string once it has had those object refs removed.
-	 * The compression will look like the first 10 valid chars followed by a hash of the original.  This sacrifices readability
-	 * for utility as a metric, so that latency metrics might survive with valid and useful dimensions for aggregation,
-	 * even if it is very hard to reverse engineer the particular operator name.  This might at least encourage devs
-	 * to apply a useful "name" and not rely on the default TriggerWindow name, for example.
+	 * If the segment is 50 chars or longer, we will compress it to avoid truncation. The compression will look like the
+	 * first 10 valid chars followed by a hash of the original.  This sacrifices readability for utility as a metric, so
+	 * that latency metrics might survive with valid and useful dimensions for aggregation, even if it is very hard to
+	 * reverse engineer the particular operator name.  Application developers can of course still supply their own names
+	 * and are not forced to rely on the defaults.
 	 *
 	 * This will turn something like:
 	 * 		"TriggerWindow(TumblingProcessingTimeWindows(5000), ReducingStateDescriptor{serializer=org.apache.flink.api.java
