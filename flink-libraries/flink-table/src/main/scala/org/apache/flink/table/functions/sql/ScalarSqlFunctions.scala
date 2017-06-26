@@ -15,25 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.flink.table.functions.sql
 
-package org.apache.flink.optimizer.postpass;
+import org.apache.calcite.sql.{SqlFunction, SqlFunctionCategory, SqlKind}
+import org.apache.calcite.sql.`type`._
 
-import java.util.Map;
-
-public abstract class AbstractSchema<X> implements Iterable<Map.Entry<Integer, X>> {
-
-	private int numConnectionsThatContributed;
-	
-	
-	public int getNumConnectionsThatContributed() {
-		return this.numConnectionsThatContributed;
-	}
-	
-	public void increaseNumConnectionsThatContributed() {
-		this.numConnectionsThatContributed++;
-	}
-	
-	public abstract void addType(int pos, X type) throws ConflictingFieldTypeInfoException;
-	
-	public abstract X getType(int field);
+/**
+  * All build-in scalar sql functions.
+  */
+object ScalarSqlFunctions {
+  val E = new SqlFunction(
+    "E",
+    SqlKind.OTHER_FUNCTION,
+    ReturnTypes.DOUBLE,
+    null,
+    OperandTypes.NILADIC,
+    SqlFunctionCategory.NUMERIC)
 }
