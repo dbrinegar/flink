@@ -424,6 +424,7 @@ Parameters:
 
 - `host` - the StatsD server host
 - `port` - the StatsD server port
+- `dogstatsd` - 
 
 Example configuration:
 
