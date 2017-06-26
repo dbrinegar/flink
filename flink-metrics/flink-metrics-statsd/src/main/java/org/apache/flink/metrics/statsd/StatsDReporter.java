@@ -44,9 +44,11 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Largely based on the StatsDReporter class by ReadyTalk.
+ * Originially based on the StatsDReporter class by ReadyTalk.
  *
  * <p>https://github.com/ReadyTalk/metrics-statsd/blob/master/metrics3-statsd/src/main/java/com/readytalk/metrics/StatsDReporter.java
  *
@@ -61,7 +63,6 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	private static final String ARG_PORT = "port";
 	private static final String ARG_DOGSTATSD = "dogstatsd";
 	private static final String ARG_SHORTIDS = "shortids";
-	//private static final String HOST_TAG = "<host>";
 
 	private boolean closed = false;
 
@@ -72,6 +73,9 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	private boolean shortIds;
 
 	private final Map<Metric, String> tagTable = new ConcurrentHashMap<>();
+
+	private final Pattern instanceRef = Pattern.compile("@[a-f0-9]+");
+	private final Pattern flinkId = Pattern.compile("[a-f0-9]");
 
 	@Override
 	public void open(MetricConfig config) {
@@ -280,19 +284,20 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 	}
 
 	/**
-	* DataDog guidance on statsd names: start with letter, uses ascii alphanumerics and underscore, separated by periods.
-	* Collapse invalid character(s) into an underscore. Skip invalid prefix and suffix.
+	* dogstatsd names should: start with letter, uses ascii alphanumerics and underscore, separated by periods.
+	* Collapse runs of invalid characters into an underscore. Discard invalid prefix and suffix.
+	* Eg: ":::metric:::name:::" ->  "metric_name"
 	*/
 
-	private Boolean isValidStatsdChar(char c) {
+	private boolean isValidStatsdChar(char c) {
 		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || (c == '_');
 	}
 
-	private String filterNCharacters(String input, Integer limit) {
+	private String filterNCharacters(String input, int limit) {
 		char[] chars = null;
 		final int strLen = input.length();
 		int pos = 0;
-		Boolean insertFiller = false;
+		boolean insertFiller = false;
 
 		for (int i = 0; i < strLen && pos < limit; i++) {
 			final char c = input.charAt(i);
@@ -329,17 +334,49 @@ public class StatsDReporter extends AbstractReporter implements Scheduled {
 		}
 	}
 
+	/**
+	 * filterCharacters() is called on each delimited segment of the metric.
+	 *
+	 * We might get a string that has coded structures, references to instances of serializers and reducers, and even if
+	 * we normalize all the odd characters could be overly long for a metric name, likely to be truncated down stream.
+	 * Our choices here appear to be either to discard invalid metrics, or to pragmatically handle each of the various
+	 * issues and produce something that might be useful in aggregate even though the named parts are hard to read.
+	 *
+	 * This function will find and remove all object references like @abcd0123, so that task and operator names are stable.
+	 * The name of an operator should be the same every time it is run, so we should ignore those object assignments.
+	 *
+	 * If the segment is a tm_id, task_id, job_id, task_attempt_id, we can optionally trim those to the first 8 chars.
+	 * This can reduce overall length substantially while still preserving enough to distinguish metrics from each other.
+	 *
+	 * If the segment is 50 chars or longer, we will compress the original string once it has had those object refs removed.
+	 * The compression will look like the first 10 valid chars followed by a hash of the original.  This sacrifices readability
+	 * for utility as a metric, so that latency metrics might survive with valid and useful dimensions for aggregation,
+	 * even if it is very hard to reverse engineer the particular operator name.  This might at least encourage devs
+	 * to apply a useful "name" and not rely on the default TriggerWindow name, for example.
+	 *
+	 * This will turn something like:
+	 * 		"TriggerWindow(TumblingProcessingTimeWindows(5000), ReducingStateDescriptor{serializer=org.apache.flink.api.java
+	 * 		.typeutils.runtime.PojoSerializer@f3395ffa, reduceFunction=org.apache.flink.streaming.examples.socket.
+	 * 		SocketWindowWordCount$1@4201c465}, ProcessingTimeTrigger(), WindowedStream.reduce(WindowedStream.java-301))"
+	 *
+	 * 	into:  "TriggerWin_c2910b88"
+	 */
 	@Override
 	public String filterCharacters(String input) {
-		if (input.length() < 50) {
-			Integer limit = Integer.MAX_VALUE;
-			if (shortIds && input.length() == 32 && !input.contains("_")) {
-				limit = 8;
-			}
-			return filterNCharacters(input, limit);
+		// remove instance references
+		Matcher hasRefs = instanceRef.matcher(input);
+		if (hasRefs.find()) {
+			input = hasRefs.replaceAll("");
 		}
-		// remove hash() references to stabilize the identifier
-		String stableName = input.replaceAll("@[0-9a-f]+", "");
-		return filterNCharacters(stableName, 10) + "_" + Integer.toHexString(stableName.hashCode());
+		// compress segments too long
+		if (input.length() >= 50) {
+			return filterNCharacters(input, 10) + "_" + Integer.toHexString(input.hashCode());
+		}
+		int limit = Integer.MAX_VALUE;
+		// optionally shrink flink ids
+		if (shortIds && input.length() == 32 && flinkId.matcher(input).matches()) {
+			limit = 8;
+		}
+		return filterNCharacters(input, limit);
 	}
 }
